@@ -145,7 +145,7 @@ def start_monitor():
                     continue
 
                 logs = collect_logs(name)
-                analysis = analyze_logs(logs)
+                analysis = analyze_logs(logs, use_llm=True)
 
                 print("\n[ROOT CAUSE ANALYSIS]")
                 print("Root Cause:", analysis["root_cause"])
@@ -163,7 +163,7 @@ def start_monitor():
 
             elif action == "oom":
                 logs = collect_logs(name)
-                analysis = analyze_logs(logs)
+                analysis = analyze_logs(logs, use_llm=True)
                 analysis["severity"] = "critical"
 
                 print("\n[OOM DETECTED]")
@@ -191,4 +191,3 @@ def start_monitor():
 
 if __name__ == "__main__":
     start_monitor()
-PY
