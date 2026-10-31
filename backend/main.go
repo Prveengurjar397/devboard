@@ -79,6 +79,12 @@ func main() {
 	r.PATCH("/tasks/:id", updateTask)
 	r.GET("/search", searchTasks)
 
+        // OpsMind AI — Incident Management APIs
+        r.POST("/incidents", createIncident)
+        r.GET("/incidents", listIncidents)
+        r.GET("/incidents/:id", getIncident)
+        r.PATCH("/incidents/:id", updateIncident)
+
 	port := env("PORT", "8080")
 	log.Printf("[backend] listening on :%s", port)
 	if err := r.Run(":" + port); err != nil {
