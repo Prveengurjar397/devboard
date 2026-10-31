@@ -1,14 +1,20 @@
+'PY'
 import json
 import subprocess
 import sys
 import urllib.request
 import urllib.error
 
+from analyzers.root_cause import analyze_logs
+
 
 API_URL = "http://localhost:8081/incidents"
+CONTAINER_PREFIX = "opsmind-"
 
 
 def collect_logs(container_name):
+    """Collect the last 50 lines of container logs."""
+
     try:
         result = subprocess.run(
             ["docker", "logs", "--tail", "50", container_name],
@@ -17,11 +23,7 @@ def collect_logs(container_name):
             timeout=5
         )
 
-        logs = result.stdout + result.stderr
-
-        if not logs.strip():
-            return "No container logs available."
-
+        logs = (result.stdout or "") + (result.stderr or "")
         return logs[-10000:]
 
     except subprocess.TimeoutExpired:
@@ -31,17 +33,20 @@ def collect_logs(container_name):
         return f"Log collection failed: {error}"
 
 
-def create_incident(name, severity, exit_code, event_type, logs):
+def create_incident(name, severity, exit_code, event_type, logs, analysis):
+    """Send an incident to the DevBoard API."""
+
     payload = {
         "title": f"OpsMind Alert: {event_type} - {name}",
-        "description": f"Docker detected {event_type} for container {name}",
+        "description": (
+            f"Container {name} generated a {event_type} event. "
+            f"Exit code: {exit_code}"
+        ),
         "container_name": name,
         "severity": severity,
         "status": "open",
-        "root_cause": (
-            f"Container event: {event_type}, Exit Code: {exit_code}"
-        ),
-        "suggested_fix": "Review application logs and container configuration",
+        "root_cause": analysis["root_cause"],
+        "suggested_fix": analysis["suggested_fix"],
         "logs": logs
     }
 
@@ -55,11 +60,10 @@ def create_incident(name, severity, exit_code, event_type, logs):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            result = json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(request, timeout=5) as response:
+            result = response.read().decode("utf-8")
             print("[INCIDENT CREATED]")
-            print("Incident ID:", result.get("id"))
-            print("Title:", result.get("title"))
+            print(result)
 
     except urllib.error.HTTPError as error:
         print("[API ERROR]", error.code, error.read().decode("utf-8"))
@@ -69,14 +73,13 @@ def create_incident(name, severity, exit_code, event_type, logs):
 
 
 def start_monitor():
-    print("================================")
-    print("     OpsMind Docker Monitor")
-    print("================================")
-    print("Listening for Docker events...")
-    print("Monitoring only opsmind- containers.")
-    print("Press CTRL+C to stop.\n")
+    """Listen for Docker events and analyze OpsMind test containers."""
 
-    stopped_containers = set()
+    print("===================================")
+    print("       OpsMind Docker Monitor")
+    print("===================================")
+    print("Monitoring containers with prefix:", CONTAINER_PREFIX)
+    print("Press Ctrl+C to stop monitoring.")
 
     command = [
         "docker",
@@ -89,6 +92,8 @@ def start_monitor():
         "--format", "{{json .}}"
     ]
 
+    stopped_containers = set()
+
     try:
         process = subprocess.Popen(
             command,
@@ -98,80 +103,92 @@ def start_monitor():
             bufsize=1
         )
 
+        if process.stdout is None:
+            print("Unable to read Docker events.")
+            return
+
         for line in process.stdout:
             if not line.strip():
                 continue
 
-            event = json.loads(line)
-
-            action = event.get("Action")
-            attributes = event.get("Actor", {}).get("Attributes", {})
-            name = attributes.get("name", "unknown")
-
-            if not name.startswith("opsmind-"):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
                 continue
+
+            action = event.get("Action", event.get("status", ""))
+            attributes = event.get("Actor", {}).get("Attributes", {})
+            name = attributes.get("name", "")
+            exit_code = attributes.get("exitCode", "unknown")
+
+            # Only monitor OpsMind test containers.
+            if not name.startswith(CONTAINER_PREFIX):
+                continue
+
+            print(f"\n[DOCKER EVENT] {action} - {name}")
 
             if action == "start":
                 stopped_containers.discard(name)
-                print("[STARTED]", name)
+                continue
 
-            elif action == "stop":
+            if action == "stop":
                 stopped_containers.add(name)
-                print("[STOPPED]", name)
+                continue
 
-            elif action == "die":
+            if action == "die":
                 if name in stopped_containers:
                     stopped_containers.discard(name)
-                    print("[DUPLICATE IGNORED]", name)
                     continue
 
-                exit_code = attributes.get("exitCode", "unknown")
-
                 if exit_code == "0":
-                    print("[NORMAL EXIT]", name)
-
-                elif exit_code == "unknown":
-                    print("[UNCLASSIFIED EXIT]", name)
-
-                else:
-                    print("[POTENTIAL CRASH]", name)
-                    print("Exit Code:", exit_code)
-
-                    logs = collect_logs(name)
-                    print("[LOGS COLLECTED]")
-                    print(logs)
-
-                    create_incident(
-                        name,
-                        "high",
-                        exit_code,
-                        "Container Crash",
-                        logs
-                    )
-
-            elif action == "oom":
-                print("[CRITICAL EVENT] Out of Memory:", name)
+                    print("[INFO] Container exited normally.")
+                    continue
 
                 logs = collect_logs(name)
+                analysis = analyze_logs(logs)
+
+                print("\n[ROOT CAUSE ANALYSIS]")
+                print("Root Cause:", analysis["root_cause"])
+                print("Suggested Fix:", analysis["suggested_fix"])
+                print("Severity:", analysis["severity"])
+
+                create_incident(
+                    name,
+                    analysis["severity"],
+                    exit_code,
+                    "Container Crash",
+                    logs,
+                    analysis
+                )
+
+            elif action == "oom":
+                logs = collect_logs(name)
+                analysis = analyze_logs(logs)
+                analysis["severity"] = "critical"
+
+                print("\n[OOM DETECTED]")
+                print("Root Cause:", analysis["root_cause"])
+                print("Suggested Fix:", analysis["suggested_fix"])
 
                 create_incident(
                     name,
                     "critical",
-                    "unknown",
+                    exit_code,
                     "OOM",
-                    logs
+                    logs,
+                    analysis
                 )
 
-    except FileNotFoundError:
-        print("Error: Docker CLI not found.")
-        sys.exit(1)
-
     except KeyboardInterrupt:
-        print("\nMonitoring stopped.")
+        print("\n[INFO] Monitoring stopped.")
+
+    except FileNotFoundError:
+        print("[ERROR] Docker command not found.")
 
     except Exception as error:
-        print("Monitoring error:", error)
+        print("[ERROR]", error)
 
 
 if __name__ == "__main__":
     start_monitor()
+PY
