@@ -1,277 +1,369 @@
-# DevBoard — Advanced (UI + Go + Postgres)
+# OpsMind AI — AI-Assisted DevSecOps Incident Management Platform
 
-This is the same DevBoard UI as the `master` branch, but now the data comes
-from a **real backend** instead of fake in-memory data.
+**Detect. Investigate. Track. Resolve.**
 
-Three pieces talk to each other:
+OpsMind AI is a DevSecOps incident management platform designed to help development and operations teams track infrastructure incidents, investigate possible root causes, and coordinate remediation through automatically linked tasks.
 
-```
-browser  →  frontend (React)  →  backend (Go API)  →  database (Postgres)
-```
+The platform connects incident management with task tracking using a Go backend, React frontend, and PostgreSQL database.
 
-- **frontend** — the React app. It also forwards anything starting with `/api`
-  to the backend.
-- **backend** — a small Go program that reads and writes the database.
-- **database** — Postgres, with some example projects and tasks loaded on first
-  start.
-
-There's no login and no AI here on purpose. The whole point is to *see how the
-pieces connect*.
+> **Project status:** Hackathon MVP — actively under development.
 
 ---
 
-## What you need
+## 1. Problem Statement
 
-- **Docker** (with Docker Compose, which comes with Docker Desktop).
-- That's it. You do **not** need Node, Go, or Postgres installed — they all run
-  inside containers.
+Infrastructure and application failures can create operational challenges for development and DevOps teams.
+
+Common problems include:
+
+- Incidents being tracked separately from development tasks.
+- Manual effort required to create investigation tasks.
+- Poor visibility into incident progress.
+- Difficulty maintaining an incident activity history.
+- Lack of synchronization between incident resolution and task completion.
+
+OpsMind AI aims to bring incident tracking and task management together in one platform.
+
+## 2. Project Overview
+
+The current MVP provides:
+
+- Centralized incident management.
+- Incident activity timeline.
+- Automatic task creation when an incident is created.
+- Database-level relationship between incidents and tasks.
+- Linked task information on the incident detail page.
+- Task-to-incident status synchronization.
+
+The architecture is designed to support future AI-assisted root-cause analysis and operational recommendations.
+
+## 3. Architecture
+
+```text
+                  OpsMind AI
+                       |
+                React Frontend
+                       |
+                 API Gateway
+                       |
+                  Go Backend
+                       |
+              PostgreSQL Database
+                       |
+        +--------------+--------------+
+        |              |              |
+     Incidents       Tasks      Incident Events
+        |              |              |
+        +------ Linked Records -------+
+                       |
+              Status Synchronization
+```
+
+### Technology Stack
+
+| Layer | Technologies |
+|---|---|
+| Frontend | React, Vite, JavaScript |
+| Backend | Go, Gin |
+| Database | PostgreSQL 16 |
+| Containerization | Docker, Docker Compose |
+| API | REST API |
+| Monitoring integration | Python, Docker SDK |
+| Local AI experimentation | Ollama, Llama 3.2 1B |
+| Version control | Git, GitHub |
+
+## 4. Implemented Features
+
+### 4.1 Incident Management
+
+- Create and view infrastructure incidents.
+- Store incident title, description and container information.
+- Track severity: Low, Medium, High and Critical.
+- Track status: Open, Acknowledged, In Progress and Resolved.
+- Store root cause, suggested fix and associated logs.
+
+### 4.2 Automatic Task Creation
+
+When a new incident is created:
+
+1. The backend stores the incident in PostgreSQL.
+2. An investigation task is automatically created.
+3. The task is associated with the incident through a database relationship.
+4. The task appears in the task management system.
+
+### 4.3 Incident and Task Linking
+
+- Each incident can have an associated investigation task.
+- The relationship is persisted in PostgreSQL.
+- Incident details display the linked task ID, title and status.
+- Users can navigate to the task board.
+
+### 4.4 Task-to-Incident Status Synchronization
+
+When a linked task changes status, the backend can update the corresponding incident status.
+
+Current implemented mappings:
+
+| Task Status | Incident Status |
+|---|---|
+| Todo | Open |
+| In Progress | In Progress |
+| Blocked | Acknowledged |
+
+A completed-task-to-resolved mapping is a planned behavior and should be verified before being considered complete.
+
+Status changes are recorded in the incident activity timeline when synchronization occurs.
+
+### 4.5 Incident Activity Timeline
+
+The platform maintains incident events such as:
+
+- Incident creation.
+- Automatic task creation.
+- Task status synchronization.
+
+This provides a record of important incident-related activities.
+
+### 4.6 Docker Monitoring Integration
+
+The repository includes a Python-based Docker monitoring component intended to observe container events and send incident information to the backend.
+
+The monitoring integration is an active development area; its complete end-to-end behavior should be validated before claiming production-ready monitoring.
 
 ---
 
-## Part 1 — The manual way (do it by hand to understand it)
+## 5. Project Structure
 
-Run all commands from this folder. We'll start the three pieces one by one, the
-hard way, so you can see exactly what Docker Compose does for you later.
-
-### Step 1: Create a network
-
-Containers can only find each other by name if they're on the **same network**.
-So first we make one:
-
-```bash
-docker network create devboard-net
+```text
+devboard/
+│
+├── backend/
+│   ├── main.go
+│   ├── incidents.go
+│   ├── incident_events.go
+│   └── Dockerfile
+│
+├── frontend/
+│   └── src/
+│       ├── api/
+│       ├── components/
+│       ├── hooks/
+│       └── pages/
+│
+├── migrations/
+│   ├── 001_incident_events.sql
+│   └── 002_incident_task_link.sql
+│
+├── monitoring/
+│   └── docker_monitor.py
+│
+├── init/
+│   └── postgres/
+│
+├── docker-compose.yml
+├── Makefile
+├── .env.example
+└── README.md
 ```
-
-### Step 2: Build the images
-
-The frontend and backend are *our* code, so we build an image for each. The
-database is not our code — it's the official Postgres image — so there's
-nothing to build for it.
-
-```bash
-docker build -t devboard-frontend ./frontend
-docker build -t devboard-backend ./backend
-```
-
-The first build downloads base images and compiles the code, so it can take a
-few minutes. Later builds are much faster.
-
-### Step 3: Run the database
-
-We name it `postgres`. The backend will look for it by that exact name. The
-`-v ./init/postgres:...` line loads the example data the first time it starts.
-
-```bash
-docker run -d --name postgres --network devboard-net \
-  -e POSTGRES_USER=devboard \
-  -e POSTGRES_PASSWORD=devboard \
-  -e POSTGRES_DB=devboard \
-  -v "$PWD/init/postgres":/docker-entrypoint-initdb.d:ro \
-  -p 5432:5432 \
-  postgres:16-alpine
-```
-
-### Step 4: Run the backend
-
-We name it `backend` (the frontend looks for this name). We also tell it how to
-reach the database with `POSTGRES_URL` — notice it uses the name `postgres`.
-
-```bash
-docker run -d --name backend --network devboard-net \
-  -e PORT=8080 \
-  -e POSTGRES_URL="postgres://devboard:devboard@postgres:5432/devboard?sslmode=disable" \
-  -p 8081:8080 \
-  devboard-backend
-```
-
-### Step 5: Run the frontend
-
-It serves the app on port 4173 inside the container; we map it to 8080 on your
-machine.
-
-```bash
-docker run -d --name frontend --network devboard-net \
-  -p 8080:4173 \
-  devboard-frontend
-```
-
-### Step 6: Open it and check
-
-Open **http://localhost:8080** in your browser — you should see the DevBoard
-dashboard with some example tasks. (If the page shows an error for a second on
-first load, the backend is still starting up — just refresh.)
-
-Then check the wiring from the terminal:
-
-```bash
-curl http://localhost:8081/health                      # backend says OK
-curl "http://localhost:8080/api/tasks?project_id=1"    # app → backend → database
-```
-
-### Step 7: Stop and clean up
-
-```bash
-docker rm -f frontend backend postgres
-docker network rm devboard-net
-```
-
-### The one thing to remember: names
-
-The backend finds the database using the name `postgres` (see `POSTGRES_URL`).
-The frontend finds the backend using the name `backend` (see
-`frontend/vite.config.js`). So those container **names must match**, and they
-only work because everything is on the same `devboard-net` network.
-
-That's a lot of typing, and you have to start them in the right order. This is
-exactly the problem Docker Compose solves.
 
 ---
 
-## Part 2 — The easy way: Docker Compose
+## 6. Getting Started
 
-Compose does everything from Part 1 — the network, the names, the order, the
-environment values — from one file (`docker-compose.yml`).
+### Prerequisites
 
-First, create your settings file (one time only). Compose reads it to fill in
-passwords and ports, so the stack won't start without it:
+- Docker Desktop or Docker Engine.
+- Docker Compose.
+- Git.
+
+Go, Node.js and PostgreSQL do not need to be installed locally when using the Docker-based setup.
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/Prveengurjar397/devboard.git
+```
+
+### Step 2: Enter the Project
+
+```bash
+cd devboard
+```
+
+### Step 3: Switch to the OpsMind AI Branch
+
+```bash
+git checkout opsmind-ai
+```
+
+### Step 4: Configure Environment
 
 ```bash
 cp .env.example .env
 ```
 
-Then start everything with one command:
+Review `.env.example` and configure the required local settings in `.env`.
+
+Do not commit your actual `.env` file or expose credentials.
+
+### Step 5: Build and Start the Application
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-The first build can take a few minutes. When it's done, open
-**http://localhost:8080** in your browser.
+### Step 6: Verify the Services
 
-Stop it:
+```bash
+docker compose ps
+```
+
+Check the backend health endpoint:
+
+```bash
+curl http://localhost:8081/health
+```
+
+Check the application API through the frontend gateway:
+
+```bash
+curl "http://localhost:8080/api/tasks?project_id=1"
+```
+
+### Step 7: Open the Application
+
+Frontend:
+
+http://localhost:8080
+
+Backend health:
+
+http://localhost:8081/health
+
+### Stop the Application
 
 ```bash
 docker compose down
 ```
 
-| Piece    | Open in browser / curl        | Notes                                   |
-| -------- | ----------------------------- | --------------------------------------- |
-| Frontend | http://localhost:8080         | the app; forwards `/api` to the backend |
-| Backend  | http://localhost:8081/health  | the Go API (the app uses it via `/api`) |
-| Postgres | localhost:5432                | user / password: `devboard` / `devboard`|
+This stops the containers without intentionally deleting the PostgreSQL data volume.
 
 ---
 
-## Part 3 — The shortcut: `make`
+## 7. API Endpoints
 
-You don't even have to remember the Compose commands. Run `make` to see what's
-available:
+The following endpoints are available in the current backend.
 
-```bash
-make           # list all commands
-make setup     # create your .env file (first time only)
-make up        # build and start everything
-make down      # stop everything
-make logs      # watch the logs
-make reset     # wipe the database and start fresh
-make smoke     # quick check that everything works
-```
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health` | Backend health check |
+| GET | `/projects` | List projects |
+| POST | `/projects` | Create project |
+| GET | `/tasks` | List tasks |
+| POST | `/tasks` | Create task |
+| PATCH | `/tasks/:id` | Update task |
+| GET | `/search` | Search tasks |
+| GET | `/incidents` | List incidents |
+| POST | `/incidents` | Create incident |
+| GET | `/incidents/:id` | Get incident details |
+| GET | `/incidents/:id/events` | Get incident timeline |
 
-`make up` creates `.env` for you automatically, so it's the simplest way to start.
-
-> `make` is optional. It's already available on Linux and macOS (on macOS you may
-> need Xcode Command Line Tools: `xcode-select --install`). On Windows, either use
-> WSL or just run the `docker compose` commands from Part 2 directly.
-
----
-
-## Settings live in `.env`
-
-All the changeable values (passwords, ports) live in one file. The first time,
-copy the example:
-
-```bash
-cp .env.example .env     # or: make setup
-```
-
-`.env.example` is the template kept in git. Your real `.env` is ignored by git,
-so in a real project your secrets never get committed.
+Frontend API requests use the `/api` prefix, which is forwarded to the backend.
 
 ---
 
-## The API (for reference)
+## 8. Database Design
 
-The browser calls these as `/api/...`; the backend serves them at the root.
+The platform uses PostgreSQL to persist project, task and incident information.
 
-| Method | Path                      | What it does                          |
-| ------ | ------------------------- | ------------------------------------- |
-| GET    | `/projects`               | list projects                         |
-| POST   | `/projects`               | create a project                      |
-| GET    | `/tasks?project_id=N`     | list tasks in a project               |
-| POST   | `/tasks`                  | create a task                         |
-| PATCH  | `/tasks/:id`              | update a task (e.g. change status)    |
-| GET    | `/search?q=&project_id=N` | search tasks by title                 |
-| GET    | `/health`                 | health check                          |
+Main tables:
 
-## Folder layout
+| Table | Responsibility |
+|---|---|
+| `projects` | Project information |
+| `tasks` | Task management |
+| `incidents` | Infrastructure incidents |
+| `incident_events` | Incident activity history |
 
-```
-.
-├── docker-compose.yml   starts frontend + backend + postgres together
-├── Makefile             short commands (make up, make down, ...)
-├── .env.example         template for settings (copy to .env)
-├── frontend/            React app (Vite). Serves the UI, forwards /api
-├── backend/             Go API (main.go + Dockerfile)
-└── init/postgres/       schema + example data, loaded on first start
-```
+### Incident-to-Task Relationship
+
+The `tasks` table contains an `incident_id` foreign key referencing `incidents.id`.
+
+A unique partial index ensures that an incident is associated with at most one linked task.
+
+Database migrations are maintained in the `migrations/` directory.
+
+For an existing database, apply the migrations in numerical order using the migration instructions appropriate to your database setup.
 
 ---
 
-## CI/CD DevSecOps Setup
+## 9. Current Limitations
 
-The repository contains GitHub Actions workflows configured with SonarQube (SAST) and OWASP ZAP (DAST) scanning.
+OpsMind AI is a hackathon MVP, not a production-ready incident management system.
 
-### How to Install and Set Up SonarQube on EC2
+The following capabilities are not yet fully implemented:
 
-To run your own self-hosted SonarQube server on your AWS EC2 instance:
+- User authentication and registration.
+- User-wise access control and data isolation.
+- AI chatbot interface.
+- Fully validated AI-powered root-cause analysis workflow.
+- Verified task completion-to-incident resolution synchronization.
+- Production-grade monitoring, alerting and security controls.
 
-1. **Start the SonarQube Container**:
-   Ensure Docker is installed on your EC2 instance, then run:
-   ```bash
-   docker run -itd --name SonarQube-Server -p 9000:9000 sonarqube:community
-   ```
+The platform should not be used as a production incident response system in its current state.
 
-2. **Access the Web Interface**:
-   - Make sure port `9000` is open in your **AWS EC2 Security Group** inbound rules.
-   - Access `http://<YOUR_EC2_PUBLIC_IP>:9000` in your browser.
-   - Log in using default credentials: Username: `admin` / Password: `admin` (you will be prompted to change it)
+---
 
+## 10. Future Roadmap
 
-### How to configure SonarQube Secrets
+Planned development areas:
 
-To enable SonarQube scanning in your GitHub Actions pipeline:
+### Phase 1 — Core Incident Management
+- [x] Incident creation and management
+- [x] Incident activity timeline
+- [x] Automatic investigation task creation
+- [x] Incident-task database relationship
+- [x] Linked task visibility in incident details
+- [x] Task-to-incident status synchronization (implemented mappings)
 
-1. **Get the Host URL**:
-   - If using a self-hosted instance, your `SONAR_HOST_URL` is the URL where SonarQube is hosted (e.g., `http://your-sonarqube-ip:9000`).
-   - If using SonarCloud, use `https://sonarcloud.io`.
-2. **Generate a SonarQube Token**:
-   - In SonarQube: Go to your **Profile (User Icon) > My Account > Security**.
-   - Under **Generate Tokens**, enter a token name, select the **User Token** type, and click **Generate**.
-   - Copy the generated token string.
-3. **Add Secrets to GitHub**:
-   - Go to your GitHub Repository settings.
-   - Navigate to **Settings > Secrets and variables > Actions**.
-   - Add two Repository Secrets:
-     - `SONAR_TOKEN`: Paste the SonarQube token you copied.
-     - `SONAR_HOST_URL`: Paste your SonarQube server URL.
+### Phase 2 — Authentication and Access Control
+- [ ] User registration and login
+- [ ] Password hashing
+- [ ] Protected backend APIs
+- [ ] User-wise data ownership
 
-### How to configure Docker Hub Credentials
+### Phase 3 — AI Assistance
+- [ ] AI chatbot interface
+- [ ] AI-assisted log analysis
+- [ ] Root-cause analysis recommendations
+- [ ] Suggested remediation steps
+- [ ] Incident investigation assistance
 
-To allow the CI pipeline to build and push images to Docker Hub:
-1. Navigate to **Settings > Secrets and variables > Actions**.
-2. Under the **Variables** tab, add:
-   - `DOCKERHUB_USERNAME`: Your Docker Hub username.
-3. Under the **Secrets** tab, add:
-   - `DOCKERHUB_TOKEN`: A Personal Access Token (PAT) generated from Docker Hub.
+### Phase 4 — DevSecOps and Observability
+- [ ] Enhanced Docker monitoring
+- [ ] Monitoring dashboards
+- [ ] Security scanning integration
+- [ ] CI/CD pipeline improvements
+- [ ] Incident metrics and reporting
 
+**Note:** Roadmap items are planned capabilities, not claims of existing functionality.
 
+---
+
+## 11. Project Goals
+
+OpsMind AI aims to make incident investigation and task coordination more organized by connecting infrastructure events, incident records, and development workflows.
+
+The long-term vision is to build an AI-assisted operational platform that helps teams understand incidents and make informed remediation decisions, with human approval for recovery actions.
+
+---
+
+## 12. Repository
+
+**GitHub:** https://github.com/Prveengurjar397/devboard
+
+**Development Branch:** `opsmind-ai`
+
+---
+
+**OpsMind AI — Bringing Incident Management, Task Automation and AI-Assisted Operations Together.**
