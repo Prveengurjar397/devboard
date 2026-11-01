@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { incidentApi } from '../api/incidents';
+import { Link } from 'react-router-dom';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 
@@ -133,7 +134,12 @@ export function IncidentsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="font-medium text-ink-950 dark:text-white">
-                      {incident.title}
+                      <Link
+                        to={`/incidents/${incident.id}`}
+                        className="hover:text-accent hover:underline"
+                      >
+                        {incident.title}
+                      </Link>
                     </h3>
                     <p className="mt-1 text-xs text-ink-400">
                       Incident #{incident.id}

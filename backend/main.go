@@ -84,6 +84,7 @@ func main() {
         r.GET("/incidents", listIncidents)
         r.GET("/incidents/:id", getIncident)
         r.PATCH("/incidents/:id", updateIncident)
+		r.GET("/incidents/:id/events", listIncidentEvents)
 
 	port := env("PORT", "8080")
 	log.Printf("[backend] listening on :%s", port)
@@ -198,41 +199,66 @@ func createTask(c *gin.Context) {
 
 func updateTask(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
+	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
+
 	var patch map[string]interface{}
 	if err := c.ShouldBindJSON(&patch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
 
-	// Whitelist the columns a PATCH may touch — never trust raw keys in SQL.
 	allowed := map[string]bool{
 		"title": true, "description": true, "status": true, "priority": true,
 	}
+
 	sets := []string{}
 	args := []interface{}{}
-	i := 1
+
 	for k, v := range patch {
 		if !allowed[k] {
 			continue
 		}
-		sets = append(sets, k+"=$"+strconv.Itoa(i))
+		if k == "status" {
+			status, ok := v.(string)
+			if !ok || (status != "todo" && status != "in_progress" &&
+				status != "blocked" && status != "done") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task status"})
+				return
+			}
+		}
+		if k == "priority" {
+			priority, ok := v.(string)
+			if !ok || (priority != "low" && priority != "medium" && priority != "high") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task priority"})
+				return
+			}
+		}
 		args = append(args, v)
-		i++
+		sets = append(sets, k+"=$"+strconv.Itoa(len(args)))
 	}
+
 	if len(sets) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no updatable fields"})
 		return
 	}
-	args = append(args, id)
 
-	query := "UPDATE tasks SET " + join(sets, ", ") +
-		" WHERE id=$" + strconv.Itoa(i) + taskReturning
-	row := db.QueryRow(query, args...)
-	task, err := scanTask(row)
+	tx, err := db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	defer tx.Rollback()
+
+	var incidentID sql.NullInt64
+	err = tx.QueryRowContext(
+		c.Request.Context(),
+		`SELECT incident_id FROM tasks WHERE id=$1 FOR UPDATE`,
+		id,
+	).Scan(&incidentID)
+
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
@@ -241,6 +267,72 @@ func updateTask(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+
+	args = append(args, id)
+	query := "UPDATE tasks SET " + join(sets, ", ") +
+		" WHERE id=$" + strconv.Itoa(len(args)) + taskReturning
+
+	task, err := scanTask(tx.QueryRowContext(c.Request.Context(), query, args...))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+
+	// Keep the linked incident in sync, within the same database transaction.
+	if incidentID.Valid {
+		var nextIncidentStatus string
+		switch task.Status {
+case "todo":
+    nextIncidentStatus = "open"
+case "in_progress":
+    nextIncidentStatus = "in_progress"
+case "blocked":
+    nextIncidentStatus = "acknowledged"
+case "done":
+    nextIncidentStatus = "resolved"
+}
+
+		// A completed task does not resolve an incident.
+		// A manually resolved incident is never reopened by task changes.
+		if nextIncidentStatus != "" {
+			var changedStatus string
+			err = tx.QueryRowContext(
+				c.Request.Context(),
+				`UPDATE incidents
+				 SET status=$1
+				 WHERE id=$2 AND status <> 'resolved' AND status <> $1
+				 RETURNING status`,
+				nextIncidentStatus,
+				incidentID.Int64,
+			).Scan(&changedStatus)
+
+			if err != nil && err != sql.ErrNoRows {
+				fail(c, err)
+				return
+			}
+
+			if err == nil {
+				_, err = tx.ExecContext(
+					c.Request.Context(),
+					`INSERT INTO incident_events
+					 (incident_id, event_type, message, actor_type)
+					 VALUES ($1, 'task_status_sync', $2, 'system')`,
+					incidentID.Int64,
+					"Linked task #"+strconv.Itoa(task.ID)+" changed; incident status is now "+changedStatus,
+				)
+				if err != nil {
+					fail(c, err)
+					return
+				}
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		fail(c, err)
+		return
+	}
+
 	c.JSON(http.StatusOK, task)
 }
 
