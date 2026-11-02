@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   IconLayoutDashboard, IconCheck, IconChartBar, IconBell,
-  IconSettings, IconChevronRight, IconFolder, IconAlertTriangle,
+  IconSettings, IconChevronRight, IconFolder, IconAlertTriangle, IconBuilding,
 } from '@tabler/icons-react';
 import { Logo } from '../ui/Logo';
 import { useProjects } from '../../hooks/useTasks';
+import { useOrganizationContext } from '../../hooks/useOrganizationContext';
 
 const NAV = [
   { to: '/',           label: 'Dashboard', icon: IconLayoutDashboard },
@@ -21,6 +22,7 @@ const SOON = [
 
 export function Sidebar() {
   const { data } = useProjects();
+  const { canManageMembers } = useOrganizationContext();
   const projects = data?.projects || [];
   const syncedAt = useMemo(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), [data]);
 
@@ -35,6 +37,16 @@ export function Sidebar() {
         <Section label="Workspace">
           {NAV.map((item) => <SidebarItem key={item.to} {...item} />)}
         </Section>
+
+        {canManageMembers && (
+          <Section label="Administration">
+            <SidebarItem
+              to="/organization"
+              icon={IconBuilding}
+              label="Company Management"
+            />
+          </Section>
+        )}
 
         <Section label="Projects" count={projects.length}>
           {projects.map((p) => (
