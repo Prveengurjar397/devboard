@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://opsmind-backend-kev4.onrender.com/:path*"
+    }
+  ]
+}
