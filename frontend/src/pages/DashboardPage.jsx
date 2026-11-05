@@ -1,4 +1,5 @@
 
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   IconArrowRight,
@@ -8,12 +9,17 @@ import {
   IconCheck,
   IconActivity,
 } from '@tabler/icons-react';
-import { useProjects, useTasks } from '../hooks/useTasks';
+import { useProjects, useTasks, useCreateProject } from '../hooks/useTasks';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/Badge';
 
 export function DashboardPage() {
   const { data: projData } = useProjects();
+  const createProject = useCreateProject();
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [projectError, setProjectError] = useState('');
   const projects = projData?.projects || [];
   const firstId = projects[0]?.id;
   const { data: taskData } = useTasks(firstId);
@@ -30,6 +36,23 @@ export function DashboardPage() {
   }
 
   const userName = currentUser?.name || 'User';
+
+  async function handleCreateProject(event) {
+    event.preventDefault();
+    setProjectError('');
+
+    try {
+      await createProject.mutateAsync({
+        name: projectName.trim(),
+        description: projectDescription.trim(),
+      });
+      setProjectName('');
+      setProjectDescription('');
+      setShowProjectForm(false);
+    } catch (err) {
+      setProjectError(err.message || 'Project creation failed.');
+    }
+  }
 
   const counts = tasks.reduce(
     (acc, task) => {
@@ -72,6 +95,54 @@ export function DashboardPage() {
           </Link>
         )}
       </header>
+
+      <section className="db-card rounded-lg p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Company Projects</h2>
+            <p className="mt-1 text-xs text-ink-400">
+              Create and manage projects in your company workspace.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowProjectForm(!showProjectForm)}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white"
+          >
+            {showProjectForm ? 'Cancel' : '+ Create Project'}
+          </button>
+        </div>
+
+        {showProjectForm && (
+          <form onSubmit={handleCreateProject} className="mt-4 grid gap-3">
+            <input
+              className="db-input w-full"
+              placeholder="Project name"
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              required
+              maxLength={120}
+            />
+            <textarea
+              className="db-input w-full"
+              placeholder="Project description (optional)"
+              value={projectDescription}
+              onChange={(event) => setProjectDescription(event.target.value)}
+              rows={3}
+            />
+            {projectError && (
+              <p role="alert" className="text-sm text-red-600">{projectError}</p>
+            )}
+            <button
+              type="submit"
+              disabled={createProject.isPending || !projectName.trim()}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50 w-fit"
+            >
+              {createProject.isPending ? 'Creating...' : 'Create Project'}
+            </button>
+          </form>
+        )}
+      </section>
 
       <section className="db-rise db-rise-1 grid gap-3 lg:grid-cols-[2fr_3fr]">
         <HeroProgress done={done} total={total} pct={pct} />

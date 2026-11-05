@@ -1,14 +1,15 @@
-'PY'
+import hashlib
 import json
+import os
 import subprocess
-import sys
 import urllib.request
 import urllib.error
 
 from analyzers.root_cause import analyze_logs
 
 
-API_URL = "http://localhost:8081/incidents"
+API_URL = "http://localhost:8081/monitoring/events"
+MONITORING_TOKEN = os.environ.get("OPSMIND_MONITORING_TOKEN", "")
 CONTAINER_PREFIX = "opsmind-"
 
 
@@ -34,7 +35,12 @@ def collect_logs(container_name):
 
 
 def create_incident(name, severity, exit_code, event_type, logs, analysis):
-    """Send an incident to the DevBoard API."""
+    """Send an authenticated monitoring event to the DevBoard API."""
+
+    fingerprint_input = f"{name}|{event_type}"
+    fingerprint = hashlib.sha256(
+        fingerprint_input.encode("utf-8")
+    ).hexdigest()
 
     payload = {
         "title": f"OpsMind Alert: {event_type} - {name}",
@@ -44,10 +50,10 @@ def create_incident(name, severity, exit_code, event_type, logs, analysis):
         ),
         "container_name": name,
         "severity": severity,
-        "status": "open",
         "root_cause": analysis["root_cause"],
         "suggested_fix": analysis["suggested_fix"],
-        "logs": logs
+        "logs": logs,
+        "fingerprint": fingerprint
     }
 
     data = json.dumps(payload).encode("utf-8")
@@ -55,14 +61,17 @@ def create_incident(name, severity, exit_code, event_type, logs, analysis):
     request = urllib.request.Request(
         API_URL,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {MONITORING_TOKEN}"
+        },
         method="POST"
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with urllib.request.urlopen(request, timeout=10) as response:
             result = response.read().decode("utf-8")
-            print("[INCIDENT CREATED]")
+            print("[MONITORING API RESPONSE]")
             print(result)
 
     except urllib.error.HTTPError as error:
@@ -75,10 +84,15 @@ def create_incident(name, severity, exit_code, event_type, logs, analysis):
 def start_monitor():
     """Listen for Docker events and analyze OpsMind test containers."""
 
+    if not MONITORING_TOKEN:
+        print("[ERROR] OPSMIND_MONITORING_TOKEN environment variable is missing.")
+        return
+
     print("===================================")
     print("       OpsMind Docker Monitor")
     print("===================================")
     print("Monitoring containers with prefix:", CONTAINER_PREFIX)
+    print("API endpoint:", API_URL)
     print("Press Ctrl+C to stop monitoring.")
 
     command = [
@@ -121,7 +135,6 @@ def start_monitor():
             name = attributes.get("name", "")
             exit_code = attributes.get("exitCode", "unknown")
 
-            # Only monitor OpsMind test containers.
             if not name.startswith(CONTAINER_PREFIX):
                 continue
 

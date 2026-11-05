@@ -29,6 +29,12 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT}:5432"
 
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
   backend:
     # build = local; image = the tag CI pushes and CD pulls (IMAGE_TAG, else latest).
     build: ./backend
@@ -38,9 +44,18 @@ services:
       JWT_SECRET: "${JWT_SECRET}"
       # Built from the Postgres vars above so the credentials live in one place.
       POSTGRES_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      OLLAMA_URL: "http://ollama:11434"
+      OLLAMA_MODEL: "llama3.2:1b"
+      SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_EMAIL: "${SMTP_EMAIL:-}"
+      SMTP_APP_PASSWORD: "${SMTP_APP_PASSWORD:-}"
+      SMTP_FROM_EMAIL: "${SMTP_FROM_EMAIL:-}"
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
     ports:
       - "${BACKEND_HOST_PORT}:${BACKEND_PORT}"   # host:container — direct curl/debug; the UI uses the gateway
 
@@ -54,3 +69,4 @@ services:
 
 volumes:
   pgdata:
+  ollama_data:

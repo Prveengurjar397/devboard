@@ -16,3 +16,19 @@ dist/
 # claude's personal scratch notes (local only)
 CLAUDE.md
 __pycache__/
+
+# Local backups and temporary recovery files
+backups/
+*.bak
+*.backup
+*.before-*
+*.pre-fix
+*.tar.gz
+
+# Local database exports
+*.dump
+*.bak.*
+*.step1-backup
+*-backup
+*-backup.*
+backend/cmd/reset-password/

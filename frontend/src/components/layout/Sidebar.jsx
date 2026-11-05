@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   IconLayoutDashboard, IconCheck, IconChartBar, IconBell,
-  IconSettings, IconChevronRight, IconFolder, IconAlertTriangle, IconBuilding,
+  IconSettings, IconChevronRight, IconFolder, IconAlertTriangle, IconBuilding,IconDeviceDesktopAnalytics,IconMessageChatbot,
 } from '@tabler/icons-react';
 import { Logo } from '../ui/Logo';
 import { useProjects } from '../../hooks/useTasks';
@@ -10,8 +10,8 @@ import { useOrganizationContext } from '../../hooks/useOrganizationContext';
 
 const NAV = [
   { to: '/',           label: 'Dashboard', icon: IconLayoutDashboard },
-  { to: '/projects/1', label: 'Tasks',     icon: IconCheck },
   { to: '/incidents', label: 'Incidents', icon: IconAlertTriangle },
+  { to: '/chatbot', label: 'OpsMind AI', icon: IconMessageChatbot },
 ];
 
 const SOON = [
@@ -36,17 +36,30 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5 text-[13px]">
         <Section label="Workspace">
           {NAV.map((item) => <SidebarItem key={item.to} {...item} />)}
+          {projects[0] && (
+            <SidebarItem
+              to={`/projects/${projects[0].id}`}
+              icon={IconCheck}
+              label="Tasks"
+            />
+          )}
         </Section>
 
-        {canManageMembers && (
-          <Section label="Administration">
-            <SidebarItem
-              to="/organization"
-              icon={IconBuilding}
-              label="Company Management"
-            />
-          </Section>
-        )}
+       {canManageMembers && (
+        <Section label="Administration">
+        <SidebarItem
+          to="/organization"
+          icon={IconBuilding}
+          label="Company Management"
+         />
+
+         <SidebarItem
+           to="/monitoring-sources"
+           icon={IconDeviceDesktopAnalytics}
+           label="Monitoring Sources"
+           />
+             </Section>
+         )}
 
         <Section label="Projects" count={projects.length}>
           {projects.map((p) => (

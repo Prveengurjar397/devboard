@@ -47,6 +47,8 @@ export const api = {
 };
 
 export const authApi = {
+  acceptInvitation: (token, name, password) =>
+   api.post('/api/invitations/accept', { token, name, password }),
   login: (email, password) => api.post('/api/auth/login', { email, password }),
   register: (name, email, password, companyName) =>
     api.post('/api/auth/register', {

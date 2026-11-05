@@ -70,17 +70,35 @@ func main() {
 
 	r.POST("/auth/register", register)
 	r.POST("/auth/login", login)
+	r.POST("/monitoring/events", MonitoringAuthRequired(), ingestMonitoringEvent)
+	r.POST("/invitations/accept", acceptOrganizationInvitation)
 
 	// Protected routes
 	api := r.Group("/")
 	api.Use(AuthRequired())
 
 	api.GET("/organizations", listOrganizations)
+	api.POST("/organizations/:id/monitoring-sources", createMonitoringSource)
+	api.GET("/organizations/:id/monitoring-sources", listMonitoringSources)
+	api.POST("/monitoring-sources/:id/rotate-token", rotateMonitoringSourceToken)
+	api.DELETE("/monitoring-sources/:id", disableMonitoringSource)
 	api.POST("/organizations", createOrganization)
 	api.POST("/organizations/:id/members", addOrganizationMember)
 	api.GET("/organizations/:id/members", listOrganizationMembers)
 	api.PATCH("/organizations/:id/members/:userId", updateOrganizationMember)
 	api.DELETE("/organizations/:id/members/:userId", removeOrganizationMember)
+	api.POST("/organizations/:id/invitations", createOrganizationInvitation)
+
+	// Platform Owner: company lifecycle management
+	api.GET("/platform/organizations", platformListOrganizations)
+	api.PATCH("/platform/organizations/:id/status", platformSetOrganizationStatus)
+	api.DELETE("/platform/organizations/:id", platformDeleteOrganization)
+	api.GET("/organizations/:id/status", getOrganizationStatus)
+
+	// OpsMind AI chatbot
+	api.POST("/chatbot/message", chatbotSendMessage)
+	api.GET("/chatbot/conversations", chatbotListConversations)
+	api.GET("/chatbot/conversations/:id", chatbotGetConversation)
 
 	api.GET("/projects", listProjects)
 	api.POST("/projects", createProject)

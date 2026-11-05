@@ -35,3 +35,13 @@ export function useUpdateTask(projectId) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks', projectId] }),
   });
 }
+
+
+export function useCreateProject() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body) => api.post('/api/projects', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+  });
+}

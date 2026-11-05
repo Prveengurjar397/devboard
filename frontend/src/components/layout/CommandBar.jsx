@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { IconSearch, IconCornerDownLeft } from '@tabler/icons-react';
 import { StatusBadge } from '../ui/Badge';
 import { api } from '../../api/client';
+import { useProjects } from '../../hooks/useTasks';
 
 /**
  * Command-bar style global search.
@@ -16,6 +17,8 @@ export function CommandBar() {
   const inputRef = useRef(null);
   const wrapRef  = useRef(null);
   const nav = useNavigate();
+  const { data: projectData } = useProjects();
+  const projectId = projectData?.projects?.[0]?.id;
 
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState([]);
@@ -38,14 +41,14 @@ export function CommandBar() {
 
   // Debounced search.
   useEffect(() => {
-    if (query.trim().length < 2) {
+    if (query.trim().length < 2 || !projectId) {
       setResults([]);
       return;
     }
     const timer = setTimeout(async () => {
       try {
         const { results: r } = await api.get(
-          `/api/search?q=${encodeURIComponent(query)}&project_id=1`,
+          `/api/search?q=${encodeURIComponent(query)}&project_id=${projectId}`,
         );
         setResults(r || []);
         setCursor(0);
@@ -55,7 +58,7 @@ export function CommandBar() {
       }
     }, 200);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, projectId]);
 
   // Outside click closes.
   useEffect(() => {
@@ -83,7 +86,7 @@ export function CommandBar() {
       if (pick) {
         setOpen(false);
         setQuery('');
-        nav('/projects/1');
+        nav(`/projects/${projectId}`);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -145,7 +148,7 @@ export function CommandBar() {
                       onClick={() => {
                         setOpen(false);
                         setQuery('');
-                        nav('/projects/1');
+                        nav(`/projects/${projectId}`);
                       }}
                       className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition
                         ${idx === cursor
